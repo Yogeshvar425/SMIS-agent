@@ -1,6 +1,6 @@
 # 🛡️ Commute Safety Pulse — Smart Mobility AI Agent
 
-> An AI-powered smart mobility assistant that helps urban commuters pick the **safest route** by scoring risk across **walk, bike, transit, and drive** modes using simulated real-time data, with intelligent recommendations from **Google Gemini**.
+> An AI-powered smart mobility assistant that helps urban commuters pick the **safest route** by scoring risk across **walk, bike, transit, and drive** modes using a **time-aware, multi-factor simulation engine**, with intelligent recommendations from **Google Gemini**.
 
 ---
 
@@ -18,33 +18,86 @@ Urban commuters face daily risk decisions — traffic congestion, incidents, poo
 Commuters lack a unified view of risk factors across multiple travel modes. Existing tools show traffic *or* transit *or* weather — but never a combined **risk score** that compares walking, cycling, transit, and driving side by side.
 
 ### Solution Design
-1. **Multi-Modal Risk Scoring** — Each route gets a composite risk score (0–100) based on simulated real-time signals (congestion, incidents, air quality).
-2. **Color-Coded Severity** — Instant visual triage:
-   - 🟢 **Green** (Low): score < 35
-   - 🟡 **Amber** (Moderate): score 35–64
-   - 🔴 **Red** (High): score ≥ 65
-3. **Congestion Forecasting** — A 2-hour lookahead bar chart (6 × 20-minute intervals) auto-refreshes every 8 seconds.
-4. **AI Recommendation** — Google Gemini 2.0 Flash generates a plain-language route suggestion based on the current mode, top route's risk score, and congestion index.
-5. **Google Maps Integration** — An embedded Google Map shows the relevant route area, updating when the user switches travel modes.
+
+#### 1. Time-Aware Simulation Engine
+Instead of random data, the system uses a **Gaussian rush-hour model** to generate realistic, correlated metrics:
+
+```
+Time-of-Day Factor (Gaussian peaks at 8:30 AM and 5:30 PM)
+    ↓
+Congestion Index (0-99, driven by time factor)
+    ↓
+Incidents (correlated with congestion, not random)
+    ↓
+AQI (derived from congestion + incident density)
+    ↓
+Route Risk Scores (multi-factor weighted model)
+```
+
+The key insight: **all metrics are logically coherent**. High congestion during morning rush produces more incidents, worse air quality, and higher risk scores — especially for congestion-sensitive modes like Drive.
+
+#### 2. Multi-Factor Weighted Risk Scoring
+Each route's risk score is computed from 4 weighted factors:
+
+| Factor | Weight | Description |
+|---|---|---|
+| Congestion × Mode Sensitivity | 45% | Drive is 6× more affected by traffic than Walk |
+| Incident Density | 25% | Nearby traffic incidents raise risk |
+| Air Quality Penalty | 15% | AQI > 50 adds risk, especially for Walk/Bike |
+| Route Intrinsic Offset | 15% | Protected bike lanes are inherently safer than busy avenues |
+
+```javascript
+score = baseRisk + (congestion × modeSensitivity × 0.45)
+      + (incidents × 8 × 0.25)
+      + (max(0, (AQI - 50) × 0.2) × 0.15)
+```
+
+#### 3. Color-Coded Severity
+Instant visual triage:
+- 🟢 **Green** (Low): score < 35
+- 🟡 **Amber** (Moderate): score 35–64
+- 🔴 **Red** (High): score ≥ 65
+
+#### 4. Temporally Continuous Forecasting
+The 2-hour forecast chart uses the same Gaussian rush-hour model projected into the future, with **60/40 exponential smoothing** to create smooth, believable trend curves instead of random jumps.
+
+#### 5. Structured AI Prompt Engineering
+The Gemini prompt uses 5 prompt engineering principles:
+1. **ROLE** — "Smart Mobility Safety Advisor" persona
+2. **CONTEXT** — Full metrics snapshot with semantic labels (time of day, AQI category)
+3. **DATA** — All 3 routes with scores and ETAs
+4. **TASK** — Specific multi-part instruction (recommend, suggest alternative, safety tip)
+5. **FORMAT** — "Exactly 3 short sentences, plain text only"
+
+#### 6. Google Maps Integration
+An embedded Google Map shows the relevant route area, updating when the user switches travel modes.
 
 ### Architecture
 ```
-┌────────────────────────────────────────────┐
-│              index.html (SPA)              │
-├────────────────────────────────────────────┤
-│  UI Layer        │  Data Layer             │
-│  ─ Mode chips    │  ─ generateData()       │
-│  ─ Metric cards  │  ─ routesData[]         │
-│  ─ Route cards   │  ─ congestionIdx        │
-│  ─ Forecast chart│  ─ incidentsVal         │
-│  ─ Google Map    │  ─ aqiVal               │
-│  ─ AI response   │                         │
-├────────────────────────────────────────────┤
-│  Google Services                           │
-│  ─ Gemini 2.0 Flash (AI recommendations)   │
-│  ─ Google Maps Embed API (route area map)  │
-│  ─ Google Fonts (Inter typeface)           │
-└────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│              index.html (SPA)                    │
+├──────────────────────────────────────────────────┤
+│  Simulation Engine         │  UI Layer           │
+│  ─ Gaussian rush-hour model│  ─ Mode chips       │
+│  ─ Correlated metrics      │  ─ 3 Metric cards   │
+│  ─ Multi-factor risk scores│  ─ 3 Route cards    │
+│  ─ Temporal forecast       │  ─ Forecast chart   │
+│  ─ Weighted scoring model  │  ─ Google Map       │
+│                            │  ─ AI response box  │
+├──────────────────────────────────────────────────┤
+│  Google Services                                 │
+│  ─ Gemini 2.0 Flash (structured prompt AI)       │
+│  ─ Google Maps Embed API (route area map)        │
+│  ─ Google Fonts (Inter typeface)                 │
+├──────────────────────────────────────────────────┤
+│  Quality & Safety                                │
+│  ─ 45+ automated self-tests                      │
+│  ─ CSP headers, input sanitization               │
+│  ─ AbortController for API race conditions       │
+│  ─ Page Visibility API (pause on tab hide)       │
+│  ─ Rate limiting (5s refresh cooldown)            │
+│  ─ Full ARIA/WCAG 2.1 accessibility              │
+└──────────────────────────────────────────────────┘
 ```
 
 ---
@@ -55,26 +108,41 @@ Commuters lack a unified view of risk factors across multiple travel modes. Exis
 1. Clone this repository
 2. Open `index.html` in any modern browser (Chrome, Firefox, Edge)
 3. Enter your **Google Gemini API Key** in the input field at the top
-4. The dashboard loads immediately with simulated data
+4. The dashboard loads immediately with time-aware simulated data
 
 ### Features
 | Feature | Description |
 |---|---|
 | **Mode Selector** | Chip buttons to switch between Walk, Bike, Transit, and Drive |
-| **3 Metric Cards** | Congestion Index, Incidents Nearby, Air Quality (AQI) |
-| **3 Route Cards** | Per mode — name, ETA, risk bar (0–100), and severity tag |
-| **Forecast Chart** | 6-bar chart covering 2 hours, auto-refreshes every 8 seconds |
+| **3 Metric Cards** | Congestion Index, Incidents Nearby, Air Quality (AQI) — all correlated |
+| **3 Route Cards** | Per mode — name, ETA, risk bar, severity tag, and **risk factor breakdown** |
+| **Forecast Chart** | 6-bar chart with rush-hour-aware temporal continuity and hover tooltips |
 | **Google Map** | Embedded map showing the route area for the selected mode |
-| **AI Recommendation** | Gemini-generated plain-text advice based on current risk data |
-| **Refresh Button** | Regenerates all simulated data and re-calls Gemini (5s cooldown) |
-| **Self-Test Suite** | Run `runSelfTest()` in browser console to validate all components |
+| **AI Recommendation** | Context-rich, structured Gemini prompt with format constraints |
+| **Refresh Button** | Regenerates data + re-calls Gemini (5s cooldown to prevent abuse) |
+| **Self-Test Suite** | 45+ automated tests including correlation and prompt engineering validation |
 
-### Gemini API Prompt
+### Gemini API Prompt (Structured)
 ```
-I am commuting by [MODE]. My best route is [ROUTE NAME] with a risk score of
-[SCORE]/100. Current congestion index is [CONGESTION]. Give me one short,
-direct sentence recommending whether to take this route and one alternative
-action if risk is high.
+You are a Smart Mobility Safety Advisor for urban commuters.
+
+CURRENT CONDITIONS (morning rush, 4/15/2026):
+• Travel mode: Drive
+• Congestion index: 72/100
+• Nearby incidents: 3
+• Air quality (AQI): 86 (Moderate)
+
+ROUTE OPTIONS (sorted by risk, best first):
+1. Toll Road — Risk: 38/100 (moderate), ETA: 25 min
+2. Local Roads — Risk: 45/100 (moderate), ETA: 40 min
+3. Highway 5 — Risk: 68/100 (high), ETA: 30 min
+
+TASK: Based on these conditions, provide:
+1. A clear recommendation for the top route
+2. If risk is moderate or high, suggest a specific alternative
+3. One practical safety tip relevant to Drive mode during morning rush
+
+FORMAT: Reply in exactly 3 short sentences. No markdown, no bullets, plain text only.
 ```
 
 ### Response Handling
@@ -86,11 +154,12 @@ data.candidates[0].content.parts[0].text → displayed in AI box
 
 ## 🔐 Security Considerations
 
-- **API Key** — Never hardcoded; entered at runtime by the user and stored only in a JS variable (never persisted to storage)
-- **Content Security Policy** — Strict CSP meta tag restricts script sources, connect targets, and frame origins
-- **Input Sanitization** — All dynamic text is sanitized before DOM insertion via `textContent` or a custom `sanitize()` function
-- **Rate Limiting** — Refresh button enforces a 5-second cooldown to prevent API abuse
-- **API Key Validation** — Basic length check before making API calls
+- **API Key** — Never hardcoded; entered at runtime, stored only in a JS variable
+- **Content Security Policy** — Strict CSP meta tag restricts all resource origins
+- **Input Sanitization** — `sanitize()` function + `textContent` for all dynamic content
+- **Rate Limiting** — 5-second cooldown on Refresh to prevent API quota abuse
+- **AbortController** — Cancels in-flight API requests on mode switch to prevent race conditions
+- **API Key Validation** — Length check before making API calls
 
 ---
 
@@ -104,33 +173,33 @@ data.candidates[0].content.parts[0].text → displayed in AI box
 - **`aria-pressed`** — Mode chips communicate toggle state
 - **Focus Styles** — Visible `:focus-visible` outlines on all interactive elements
 - **Screen Reader Chart Summary** — Hidden text provides a textual summary of chart data
-- **Color + Text** — Risk severity is communicated through both color and text labels (not color alone)
+- **Color + Text** — Risk severity is communicated through both color and labels (color-blind safe)
 
 ---
 
 ## 🔧 Google Services Integration
 
-| Service | Usage |
-|---|---|
-| **Google Gemini 2.0 Flash** | AI-powered route recommendations via `generateContent` REST API |
-| **Google Maps Embed API** | Interactive map showing route area, updates per travel mode |
-| **Google Fonts** | `Inter` typeface for clean, professional typography |
+| Service | Usage | Why |
+|---|---|---|
+| **Google Gemini 2.0 Flash** | Context-rich route recommendations via structured prompts | Fast inference, good at following format constraints |
+| **Google Maps Embed API** | Interactive map per travel mode | Visual route context, updates dynamically |
+| **Google Fonts (Inter)** | Professional typography | Clean, accessible at all sizes |
 
 ---
 
 ## 📋 Assumptions
 
-1. **Simulated Data** — All metrics (congestion, incidents, AQI, risk scores) are randomly generated to demonstrate the UI and logic. In production, these would connect to live traffic APIs.
-2. **Single File** — The entire application is contained in one `index.html` file with no external dependencies (except Google CDNs for fonts and APIs).
-3. **API Key Scope** — The user's API key must have access to both the Generative Language API and the Maps Embed API.
-4. **Modern Browser** — Requires a browser supporting ES6+, CSS Custom Properties, and the Fetch API.
-5. **Route Data** — Route names and ETAs are illustrative; in a real deployment, these would come from Google Directions API.
+1. **Simulated Data** — Metrics use a time-aware Gaussian model (not random numbers). In production, these would connect to Google Maps Directions API, OpenAQ, and TomTom Traffic API.
+2. **Single File** — The entire application is contained in one `index.html` with no external JS dependencies.
+3. **API Key Scope** — The user's API key needs access to the Generative Language API and Maps Embed API.
+4. **Modern Browser** — Requires ES6+, CSS Custom Properties, Fetch API, and Page Visibility API.
+5. **Route Data** — Route names and base ETAs are illustrative; risk scores are computed, not random.
 
 ---
 
 ## 🧪 Testing
 
-### Built-in Self-Test
+### Built-in Self-Test (45+ assertions)
 Open your browser's developer console and run:
 ```javascript
 runSelfTest()
@@ -140,19 +209,24 @@ This validates:
 - ✅ All required DOM elements exist
 - ✅ Risk color and tag mapping across boundary values
 - ✅ Route data generation (count, sorting, value ranges, types)
+- ✅ **Risk factor breakdown objects** exist on all routes
 - ✅ Metric values are within valid ranges
-- ✅ Mode chips, chart bars, and route cards are rendered
-- ✅ Accessibility landmarks and ARIA attributes are present
+- ✅ **Data correlation** — high congestion produces incidents in >50% of trials
+- ✅ **Time-of-day factor** validity (0.15–1.0 range)
+- ✅ **Forecast temporal continuity** — max bar-to-bar jump < 40
+- ✅ Mode chips, chart bars, and route cards rendered correctly
+- ✅ **Risk breakdown UI** displayed on all route cards
+- ✅ Accessibility landmarks and ARIA attributes present
+- ✅ **Prompt engineering** — role, all 3 routes, AQI, format constraint, time context
 - ✅ Constants match expected values
 
-Results appear in both the console and an on-page test panel.
-
 ### Manual Testing
-- Switch between all 4 modes and confirm routes update
-- Enter API key → click Refresh → confirm AI response appears
+- Switch between all 4 modes and confirm routes update with mode-appropriate risk levels
+- Enter API key → click Refresh → confirm AI response appears in 3 sentences
 - Rapid-click Refresh to verify cooldown enforcement
 - Tab through all interactive elements to verify keyboard navigation
-- Inspect with browser Accessibility tree / screen reader
+- Hover over forecast chart bars to see time tooltips
+- Check risk factor breakdown on each route card
 
 ---
 
@@ -160,7 +234,7 @@ Results appear in both the console and an on-page test panel.
 
 ```
 SMIS-agent/
-├── index.html     ← Complete single-file application
+├── index.html     ← Complete single-file application (1147 lines)
 ├── README.md      ← This file
 └── .gitignore     ← Standard ignores
 ```

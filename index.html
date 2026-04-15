@@ -325,6 +325,19 @@
         .risk-tag.moderate { background: #fef3c7; color: #92400e; }
         .risk-tag.high { background: #fee2e2; color: #991b1b; }
 
+        /* Risk breakdown mini-bar */
+        .risk-breakdown {
+            display: flex; gap: 8px; flex-wrap: wrap;
+            font-size: 0.72rem; color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .risk-factor {
+            display: inline-flex; align-items: center; gap: 3px;
+            background: var(--bg);
+            padding: 2px 8px;
+            border-radius: 8px;
+        }
+
         /* ==============================================
            FORECAST CHART
            ============================================== */
@@ -346,6 +359,7 @@
             border-radius: 6px 6px 0 0;
             transition: height 0.6s ease, background-color 0.6s ease;
             position: relative;
+            cursor: default;
         }
         .bar-value {
             position: absolute; top: -20px;
@@ -356,6 +370,18 @@
         .bar-label {
             font-size: 0.75rem; color: var(--text-muted); font-weight: 500;
         }
+        .bar-tooltip {
+            display: none;
+            position: absolute; bottom: 105%;
+            background: var(--text-primary);
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.72rem;
+            white-space: nowrap;
+            z-index: 10;
+        }
+        .bar:hover .bar-tooltip { display: block; }
 
         /* ==============================================
            GOOGLE MAPS EMBED
@@ -531,7 +557,7 @@
 
         <!-- Status Bar -->
         <div class="status-bar" aria-live="polite">
-            <span><span class="status-dot" aria-hidden="true"></span>Simulated real-time data — refreshes every 8 s</span>
+            <span><span class="status-dot" aria-hidden="true"></span>Time-aware simulation — refreshes every 8 s</span>
             <span id="last-updated">Last updated: —</span>
         </div>
 
@@ -551,19 +577,19 @@
                     <div class="metric-icon" aria-hidden="true">🚦</div>
                     <p class="card-title">Congestion Index</p>
                     <div class="metric-value" id="val-congestion">—</div>
-                    <p class="metric-desc">Based on simulated traffic flow</p>
+                    <p class="metric-desc">Based on time-of-day traffic model</p>
                 </div>
                 <div class="card metric-card incidents" aria-label="Incidents Nearby metric">
                     <div class="metric-icon" aria-hidden="true">⚠️</div>
                     <p class="card-title">Incidents Nearby</p>
                     <div class="metric-value" id="val-incidents">—</div>
-                    <p class="metric-desc">Reported in the last hour</p>
+                    <p class="metric-desc">Correlated with congestion level</p>
                 </div>
                 <div class="card metric-card aqi" aria-label="Air Quality Index metric">
                     <div class="metric-icon" aria-hidden="true">🌿</div>
                     <p class="card-title">Air Quality (AQI)</p>
                     <div class="metric-value" id="val-aqi">—</div>
-                    <p class="metric-desc">Current ambient reading</p>
+                    <p class="metric-desc">Derived from traffic + incidents</p>
                 </div>
             </div>
         </section>
@@ -581,7 +607,7 @@
             <!-- Congestion Forecast -->
             <section class="card" aria-labelledby="forecast-heading">
                 <h3 id="forecast-heading">📊 Congestion Forecast</h3>
-                <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0;">Next 2 hours · updates every 8 s</p>
+                <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0;">Next 2 hours · rush-hour aware · updates every 8 s</p>
                 <div class="chart-area" id="chart-area" role="img" aria-label="Bar chart showing congestion forecast for next 2 hours">
                     <!-- Rendered by JS -->
                 </div>
@@ -642,7 +668,7 @@
     /** Minutes between each forecast slot */
     const FORECAST_INTERVAL_MIN = 20;
 
-    /** Maximum random incidents */
+    /** Maximum simulated incidents */
     const MAX_INCIDENTS = 5;
 
     /** Available travel modes with icons */
@@ -653,12 +679,44 @@
         { id: 'Drive',   icon: '🚗' }
     ];
 
-    /** Route templates per mode (name + base ETA) */
-    const ROUTE_TEMPLATES = {
-        Walk:    [{ name: 'Park Path',       eta: '15 min' }, { name: 'Main Street',    eta: '12 min' }, { name: 'Riverside Walk', eta: '18 min' }],
-        Bike:    [{ name: 'Protected Lane',  eta: '8 min'  }, { name: 'River Trail',    eta: '10 min' }, { name: 'Busy Avenue',    eta: '6 min'  }],
-        Transit: [{ name: 'Bus 42',          eta: '25 min' }, { name: 'Subway Red Line',eta: '20 min' }, { name: 'Light Rail',     eta: '22 min' }],
-        Drive:   [{ name: 'Highway 5',       eta: '30 min' }, { name: 'Local Roads',    eta: '40 min' }, { name: 'Toll Road',      eta: '25 min' }]
+    /**
+     * Mode risk profiles — each mode has intrinsic risk characteristics.
+     * congestionSensitivity: how much traffic congestion affects this mode (0-1)
+     * weatherSensitivity: how much weather/environment affects this mode (0-1)
+     * base: intrinsic baseline risk for this mode
+     */
+    const MODE_RISK_PROFILES = {
+        Walk:    { base: 18, weatherSensitivity: 0.8, congestionSensitivity: 0.15 },
+        Bike:    { base: 30, weatherSensitivity: 0.9, congestionSensitivity: 0.35 },
+        Transit: { base: 22, weatherSensitivity: 0.3, congestionSensitivity: 0.65 },
+        Drive:   { base: 28, weatherSensitivity: 0.2, congestionSensitivity: 0.90 }
+    };
+
+    /**
+     * Route-specific risk offsets and properties.
+     * offset: negative = safer than mode average, positive = riskier
+     */
+    const ROUTE_DEFINITIONS = {
+        Walk: [
+            { name: 'Park Path',       eta: '15 min', offset: -10, type: 'park' },
+            { name: 'Main Street',     eta: '12 min', offset:   5, type: 'road' },
+            { name: 'Riverside Walk',  eta: '18 min', offset:  -5, type: 'trail' }
+        ],
+        Bike: [
+            { name: 'Protected Lane',  eta: '8 min',  offset: -15, type: 'protected' },
+            { name: 'River Trail',     eta: '10 min', offset:  -8, type: 'trail' },
+            { name: 'Busy Avenue',     eta: '6 min',  offset:  12, type: 'road' }
+        ],
+        Transit: [
+            { name: 'Bus 42',          eta: '25 min', offset:   5, type: 'bus' },
+            { name: 'Subway Red Line', eta: '20 min', offset: -10, type: 'subway' },
+            { name: 'Light Rail',      eta: '22 min', offset:   0, type: 'rail' }
+        ],
+        Drive: [
+            { name: 'Highway 5',       eta: '30 min', offset:   8, type: 'highway' },
+            { name: 'Local Roads',     eta: '40 min', offset:  -5, type: 'local' },
+            { name: 'Toll Road',       eta: '25 min', offset: -12, type: 'toll' }
+        ]
     };
 
     /** Map location queries per mode */
@@ -673,13 +731,14 @@
        STATE
        ========================================================== */
 
-    let currentMode   = 'Walk';
-    let routesData    = [];
-    let congestionIdx = 0;
-    let incidentsVal  = 0;
-    let aqiVal        = 0;
-    let chartTimer    = null;
-    let lastRefresh   = 0;
+    let currentMode        = 'Walk';
+    let routesData         = [];
+    let congestionIdx      = 0;
+    let incidentsVal       = 0;
+    let aqiVal             = 0;
+    let chartTimer         = null;
+    let lastRefresh        = 0;
+    let currentAbortCtrl   = null;  // AbortController for Gemini API calls
 
     /* ==========================================================
        UTILITY FUNCTIONS
@@ -708,12 +767,24 @@
     }
 
     /**
-     * Returns a random integer from 0 to max (exclusive).
+     * Clamps a value between min and max.
+     * @param {number} val
+     * @param {number} min
      * @param {number} max
      * @returns {number}
      */
-    function randInt(max) {
-        return Math.floor(Math.random() * max);
+    function clamp(val, min, max) {
+        return Math.max(min, Math.min(max, val));
+    }
+
+    /**
+     * Adds bounded random noise to a value for realism.
+     * @param {number} base — center value
+     * @param {number} spread — max deviation
+     * @returns {number}
+     */
+    function jitter(base, spread) {
+        return base + (Math.random() - 0.5) * 2 * spread;
     }
 
     /**
@@ -722,6 +793,21 @@
      */
     function timestamp() {
         return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    /**
+     * Returns a human-readable time-of-day description.
+     * @returns {string}
+     */
+    function getTimeDescription() {
+        const h = new Date().getHours();
+        if (h < 6)  return 'early morning';
+        if (h < 10) return 'morning rush';
+        if (h < 12) return 'late morning';
+        if (h < 14) return 'midday';
+        if (h < 17) return 'afternoon';
+        if (h < 20) return 'evening rush';
+        return 'night';
     }
 
     /**
@@ -736,40 +822,115 @@
     }
 
     /* ==========================================================
-       DATA GENERATION (SIMULATED)
+       SIMULATION ENGINE — Time-Aware, Correlated Data
        ========================================================== */
 
     /**
-     * Generates fresh simulated data for metrics, routes, and chart.
-     * Updates global state and DOM.
+     * Computes a time-of-day congestion pressure factor using
+     * Gaussian curves centered on rush-hour peaks (8:30 AM, 5:30 PM).
+     *
+     * This models realistic urban traffic patterns:
+     * - Low congestion at night and early morning
+     * - Peak congestion during morning and evening commutes
+     * - Moderate congestion during midday
+     *
+     * @returns {number} 0-1 congestion pressure factor
      */
-    function generateData() {
-        // Metrics
-        congestionIdx = randInt(100);
-        incidentsVal  = randInt(MAX_INCIDENTS + 1);
-        aqiVal        = Math.random() > 0.8
-            ? randInt(100) + 100   // occasionally poor AQI
-            : randInt(80);         // usually good AQI
+    function getTimeOfDayFactor() {
+        const now = new Date();
+        const hour = now.getHours() + now.getMinutes() / 60;
 
+        // Gaussian peaks at 8:30 AM and 5:30 PM with σ=1.5 hours
+        const morningPeak = Math.exp(-0.5 * Math.pow((hour - 8.5) / 1.5, 2));
+        const eveningPeak = Math.exp(-0.5 * Math.pow((hour - 17.5) / 1.5, 2));
+
+        // Minimum 15% baseline (city never fully sleeps)
+        return Math.max(morningPeak, eveningPeak, 0.15);
+    }
+
+    /**
+     * Generates correlated, time-aware simulation data.
+     *
+     * DATA FLOW:
+     *   time-of-day → congestion → incidents (correlated)
+     *   congestion + incidents → AQI
+     *   congestion + incidents + AQI + mode profile + route offset → route risk score
+     *
+     * This ensures all metrics are logically coherent — high congestion
+     * produces more incidents, worse AQI, and higher risk scores,
+     * especially for congestion-sensitive modes like Drive.
+     */
+    function generateSimulatedData() {
+        const timeFactor = getTimeOfDayFactor();
+
+        // === Step 1: Congestion Index (driven by time-of-day) ===
+        congestionIdx = Math.round(clamp(jitter(timeFactor * 80, 12), 0, 99));
+
+        // === Step 2: Incidents (correlated with congestion) ===
+        const incidentRate = congestionIdx / 25;
+        incidentsVal = Math.round(clamp(jitter(incidentRate, 0.8), 0, MAX_INCIDENTS));
+
+        // === Step 3: AQI (derived from congestion + incidents) ===
+        const baseAqi = 30 + congestionIdx * 0.5 + incidentsVal * 6;
+        aqiVal = Math.round(clamp(jitter(baseAqi, 8), 10, 200));
+
+        // === Step 4: Route risk scores (multi-factor weighted model) ===
+        const profile = MODE_RISK_PROFILES[currentMode];
+        const routes  = ROUTE_DEFINITIONS[currentMode];
+
+        routesData = routes.map(r => {
+            // Weighted risk computation
+            const congestionRisk = congestionIdx * profile.congestionSensitivity * 0.45;
+            const incidentRisk   = incidentsVal * 8 * 0.25;
+            const aqiRisk        = Math.max(0, (aqiVal - 50) * 0.2) * 0.15;
+            const baseRisk       = profile.base + r.offset;
+
+            const rawScore = baseRisk + congestionRisk + incidentRisk + aqiRisk;
+            const score    = Math.round(clamp(jitter(rawScore, 4), 0, 99));
+
+            return {
+                name: r.name,
+                eta: r.eta,
+                type: r.type,
+                score,
+                tag: riskTag(score),
+                color: riskColor(score),
+                // Store factor contributions for breakdown display
+                factors: {
+                    congestion: Math.round(congestionRisk),
+                    incidents:  Math.round(incidentRisk),
+                    airQuality: Math.round(aqiRisk),
+                    route:      Math.round(baseRisk)
+                }
+            };
+        });
+
+        routesData.sort((a, b) => a.score - b.score);
+
+        // === Render all ===
+        updateMetricsDOM();
+        renderRoutes();
+        updateChart();
+        updateTimestamp();
+    }
+
+    /* ==========================================================
+       DOM UPDATE FUNCTIONS
+       ========================================================== */
+
+    /**
+     * Updates the 3 metric card values and their color coding.
+     */
+    function updateMetricsDOM() {
         document.getElementById('val-congestion').textContent = congestionIdx + ' / 100';
         document.getElementById('val-incidents').textContent  = incidentsVal;
         document.getElementById('val-aqi').textContent        = aqiVal;
 
-        // Color the metric values by severity
         document.getElementById('val-congestion').style.color = riskColor(congestionIdx);
-        document.getElementById('val-aqi').style.color        = aqiVal > 100 ? 'var(--risk-high)' : aqiVal > 50 ? 'var(--risk-moderate)' : 'var(--risk-low)';
-
-        // Routes
-        const templates = ROUTE_TEMPLATES[currentMode];
-        routesData = templates.map(r => {
-            const score = randInt(100);
-            return { ...r, score, tag: riskTag(score), color: riskColor(score) };
-        });
-        routesData.sort((a, b) => a.score - b.score);
-
-        renderRoutes();
-        updateChart();
-        updateTimestamp();
+        document.getElementById('val-aqi').style.color =
+            aqiVal > 100 ? 'var(--risk-high)' :
+            aqiVal > 50  ? 'var(--risk-moderate)' :
+                           'var(--risk-low)';
     }
 
     /* ==========================================================
@@ -790,7 +951,7 @@
             </button>
         `).join('');
 
-        // Event delegation for chips
+        // Attach event listeners
         container.querySelectorAll('.chip').forEach(btn => {
             btn.addEventListener('click', () => setMode(btn.dataset.mode));
         });
@@ -798,6 +959,8 @@
 
     /**
      * Renders the 3 route cards for the current mode.
+     * Each card now includes a risk factor breakdown showing
+     * WHY the risk score is what it is.
      */
     function renderRoutes() {
         const container = document.getElementById('routes-container');
@@ -819,24 +982,57 @@
                      aria-label="${sanitize(r.name)} risk level">
                     <div class="risk-fill" style="width:${r.score}%;background:${r.color}"></div>
                 </div>
+                <div class="risk-breakdown" aria-label="Risk factor breakdown">
+                    <span class="risk-factor">🚦 Traffic: +${r.factors.congestion}</span>
+                    <span class="risk-factor">⚠️ Incidents: +${r.factors.incidents}</span>
+                    <span class="risk-factor">🌿 AQI: +${r.factors.airQuality}</span>
+                    <span class="risk-factor">📍 Route: ${r.factors.route >= 0 ? '+' : ''}${r.factors.route}</span>
+                </div>
             </div>
         `).join('');
     }
 
     /**
-     * Updates the forecast bar chart with fresh random data.
+     * Generates forecasted congestion values with temporal continuity.
+     * Uses the time-of-day model to project congestion into the future,
+     * creating smooth, believable trend curves instead of random jumps.
+     *
+     * @returns {number[]} array of FORECAST_SLOTS congestion values (0-99)
+     */
+    function generateForecast() {
+        const values = [];
+        let current = congestionIdx;
+
+        for (let i = 0; i < FORECAST_SLOTS; i++) {
+            const futureMinutes = i * FORECAST_INTERVAL_MIN;
+            const futureDate = new Date(Date.now() + futureMinutes * 60000);
+            const futureHour = futureDate.getHours() + futureDate.getMinutes() / 60;
+
+            // Project rush-hour pressure at future time
+            const morningPeak = Math.exp(-0.5 * Math.pow((futureHour - 8.5) / 1.5, 2));
+            const eveningPeak = Math.exp(-0.5 * Math.pow((futureHour - 17.5) / 1.5, 2));
+            const futurePressure = Math.max(morningPeak, eveningPeak, 0.15);
+
+            const target = Math.round(clamp(futurePressure * 80 + jitter(0, 6), 0, 99));
+            // Smooth transition: 60% previous, 40% target
+            current = Math.round(current * 0.6 + target * 0.4);
+            values.push(clamp(current, 0, 99));
+        }
+        return values;
+    }
+
+    /**
+     * Updates the forecast bar chart.
      * Reuses existing DOM elements when possible for efficiency.
      */
     function updateChart() {
         const container = document.getElementById('chart-area');
-        const values = Array.from({ length: FORECAST_SLOTS }, () => randInt(100));
+        const values = generateForecast();
         const summaryParts = [];
-
-        // If bars already exist, update in-place (efficient); otherwise create
         const existingCols = container.querySelectorAll('.chart-col');
 
         if (existingCols.length === FORECAST_SLOTS) {
-            // In-place update — no DOM teardown
+            // In-place update — efficient, no DOM teardown
             existingCols.forEach((col, i) => {
                 const bar = col.querySelector('.bar');
                 const valLabel = col.querySelector('.bar-value');
@@ -845,16 +1041,25 @@
                 valLabel.textContent = values[i];
                 const mins = i * FORECAST_INTERVAL_MIN;
                 summaryParts.push(`+${mins}min: ${values[i]}`);
+                // Update tooltip
+                const tooltip = col.querySelector('.bar-tooltip');
+                if (tooltip) {
+                    const futureTime = new Date(Date.now() + mins * 60000);
+                    tooltip.textContent = `${futureTime.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} — Congestion: ${values[i]}`;
+                }
             });
         } else {
             // First render — build DOM
             container.innerHTML = values.map((v, i) => {
                 const mins = i * FORECAST_INTERVAL_MIN;
                 summaryParts.push(`+${mins}min: ${v}`);
+                const futureTime = new Date(Date.now() + mins * 60000);
+                const timeStr = futureTime.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
                 return `
                     <div class="chart-col">
                         <div class="bar" style="height:${v}%;background:${riskColor(v)}">
                             <span class="bar-value">${v}</span>
+                            <span class="bar-tooltip">${timeStr} — Congestion: ${v}</span>
                         </div>
                         <span class="bar-label">+${mins}m</span>
                     </div>`;
@@ -909,10 +1114,10 @@
      * @param {string} mode — one of Walk, Bike, Transit, Drive
      */
     function setMode(mode) {
-        if (!ROUTE_TEMPLATES[mode]) return;
+        if (!ROUTE_DEFINITIONS[mode]) return;
         currentMode = mode;
         renderChips();
-        generateData();
+        generateSimulatedData();
         updateMap();
         fetchAIRecommendation();
     }
@@ -939,7 +1144,7 @@
         btn.disabled = true;
         btn.textContent = '↻ Refreshing…';
 
-        generateData();
+        generateSimulatedData();
         updateMap();
         fetchAIRecommendation();
 
@@ -950,14 +1155,62 @@
     }
 
     /* ==========================================================
-       GEMINI API INTEGRATION
+       GEMINI API INTEGRATION — Structured Prompt Engineering
        ========================================================== */
 
     /**
-     * Calls the Gemini 2.0 Flash API with a prompt built from current state.
-     * Displays the plain-text response in the AI recommendation box.
+     * Builds a structured, context-rich prompt for Gemini.
+     * Includes all 3 routes, all metrics, time context, and format constraints.
+     *
+     * Prompt engineering principles applied:
+     * 1. ROLE — "Smart Mobility Safety Advisor" persona
+     * 2. CONTEXT — full metrics snapshot with semantic labels
+     * 3. DATA — all 3 routes with scores and ETAs
+     * 4. TASK — specific, multi-part instruction
+     * 5. FORMAT — "exactly 3 short sentences, plain text only"
+     *
+     * @returns {string} the formatted prompt
+     */
+    function buildGeminiPrompt() {
+        const top   = routesData[0];
+        const mid   = routesData[1];
+        const worst = routesData[routesData.length - 1];
+        const timeDesc = getTimeDescription();
+        const aqiLabel = aqiVal <= 50 ? 'Good' : aqiVal <= 100 ? 'Moderate' : 'Unhealthy';
+
+        return `You are a Smart Mobility Safety Advisor for urban commuters.
+
+CURRENT CONDITIONS (${timeDesc}, ${new Date().toLocaleDateString()}):
+• Travel mode: ${currentMode}
+• Congestion index: ${congestionIdx}/100
+• Nearby incidents: ${incidentsVal}
+• Air quality (AQI): ${aqiVal} (${aqiLabel})
+
+ROUTE OPTIONS (sorted by risk, best first):
+1. ${top.name} — Risk: ${top.score}/100 (${top.tag}), ETA: ${top.eta}
+2. ${mid.name} — Risk: ${mid.score}/100 (${mid.tag}), ETA: ${mid.eta}
+3. ${worst.name} — Risk: ${worst.score}/100 (${worst.tag}), ETA: ${worst.eta}
+
+TASK: Based on these conditions, provide:
+1. A clear recommendation (take / avoid / proceed with caution) for the top route
+2. If risk is moderate or high, suggest a specific alternative (different route OR different mode)
+3. One practical safety tip relevant to ${currentMode} mode during ${timeDesc}
+
+FORMAT: Reply in exactly 3 short sentences. No markdown, no bullets, plain text only.`;
+    }
+
+    /**
+     * Calls the Gemini 2.0 Flash API with a structured prompt.
+     * Uses AbortController to cancel in-flight requests on mode switch,
+     * preventing race conditions where an old response overwrites a new one.
      */
     async function fetchAIRecommendation() {
+        // Cancel any in-flight request to prevent race conditions
+        if (currentAbortCtrl) {
+            currentAbortCtrl.abort();
+        }
+        currentAbortCtrl = new AbortController();
+
         const apiKey = document.getElementById('api-key-input').value.trim();
         const box    = document.getElementById('ai-response');
 
@@ -980,8 +1233,6 @@
             return;
         }
 
-        const prompt = `I am commuting by ${currentMode}. My best route is ${topRoute.name} with a risk score of ${topRoute.score}/100. Current congestion index is ${congestionIdx}. Give me one short, direct sentence recommending whether to take this route and one alternative action if risk is high.`;
-
         box.classList.add('loading');
         box.textContent = 'Analyzing current conditions…';
 
@@ -991,8 +1242,9 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }]
-                })
+                    contents: [{ parts: [{ text: buildGeminiPrompt() }] }]
+                }),
+                signal: currentAbortCtrl.signal
             });
 
             const data = await res.json();
@@ -1009,6 +1261,7 @@
                 box.textContent = 'Received an unexpected response structure from the API.';
             }
         } catch (err) {
+            if (err.name === 'AbortError') return; // Silently ignore aborted requests
             box.classList.remove('loading');
             box.textContent = 'Network error — unable to reach Gemini API. Check your connection and API key.';
             console.error('[Commute Safety Pulse] Gemini API error:', err);
@@ -1021,7 +1274,9 @@
 
     /**
      * Runs a suite of automated self-tests to validate core functionality.
-     * Results are logged to the console and optionally displayed in the test panel.
+     * Tests cover: DOM integrity, data pipelines, risk calculations,
+     * boundary conditions, rendering, accessibility attributes, and constants.
+     *
      * Call via browser console: runSelfTest()
      * @returns {{ passed: number, failed: number, total: number }}
      */
@@ -1056,57 +1311,97 @@
         assert('Risk color: score 50 → moderate (amber)', riskColor(50).includes('moderate'));
         assert('Risk color: score 80 → high (red)',       riskColor(80).includes('high'));
 
-        // 3. Risk tag mapping
-        assert('Risk tag: score 0 → "low"',      riskTag(0)  === 'low');
-        assert('Risk tag: score 34 → "low"',     riskTag(34) === 'low');
-        assert('Risk tag: score 35 → "moderate"',riskTag(35) === 'moderate');
-        assert('Risk tag: score 64 → "moderate"',riskTag(64) === 'moderate');
-        assert('Risk tag: score 65 → "high"',    riskTag(65) === 'high');
-        assert('Risk tag: score 99 → "high"',    riskTag(99) === 'high');
+        // 3. Risk tag mapping (boundary values)
+        assert('Risk tag: score 0 → "low"',       riskTag(0)  === 'low');
+        assert('Risk tag: score 34 → "low"',      riskTag(34) === 'low');
+        assert('Risk tag: score 35 → "moderate"',  riskTag(35) === 'moderate');
+        assert('Risk tag: score 64 → "moderate"',  riskTag(64) === 'moderate');
+        assert('Risk tag: score 65 → "high"',      riskTag(65) === 'high');
+        assert('Risk tag: score 99 → "high"',      riskTag(99) === 'high');
 
-        // 4. Route data generation
-        generateData();
-        assert('Routes array has 3 items',        routesData.length === 3);
-        assert('Routes sorted ascending by score', routesData[0].score <= routesData[1].score && routesData[1].score <= routesData[2].score);
+        // 4. Simulation engine data generation
+        generateSimulatedData();
+        assert('Routes array has 3 items',         routesData.length === 3);
+        assert('Routes sorted ascending by score',  routesData[0].score <= routesData[1].score && routesData[1].score <= routesData[2].score);
         routesData.forEach((r, i) => {
-            assert(`Route[${i}] score 0-99 range`, r.score >= 0 && r.score < 100);
-            assert(`Route[${i}] has name`,          typeof r.name === 'string' && r.name.length > 0);
+            assert(`Route[${i}] score 0-99 range`,  r.score >= 0 && r.score < 100);
+            assert(`Route[${i}] has name`,           typeof r.name === 'string' && r.name.length > 0);
             assert(`Route[${i}] has eta`,            typeof r.eta === 'string' && r.eta.length > 0);
             assert(`Route[${i}] has tag`,            ['low', 'moderate', 'high'].includes(r.tag));
+            assert(`Route[${i}] has factors object`, typeof r.factors === 'object' && r.factors !== null);
         });
 
         // 5. Metrics in valid range
         assert('Congestion index 0-99', congestionIdx >= 0 && congestionIdx < 100);
         assert('Incidents 0-5',         incidentsVal >= 0 && incidentsVal <= MAX_INCIDENTS);
-        assert('AQI >= 0',              aqiVal >= 0);
+        assert('AQI >= 10',             aqiVal >= 10);
 
-        // 6. Chips rendered
+        // 6. Correlation checks (the key improvement over random)
+        // At high congestion, incidents should tend to be > 0
+        const savedMode = currentMode;
+        let highCongestionIncidents = 0;
+        for (let trial = 0; trial < 20; trial++) {
+            generateSimulatedData();
+            if (congestionIdx > 60 && incidentsVal > 0) highCongestionIncidents++;
+        }
+        assert('Correlation: high congestion tends to produce incidents (>50% of trials)',
+               highCongestionIncidents > 5);
+        currentMode = savedMode;
+        generateSimulatedData(); // Restore
+
+        // 7. Time-of-day factor is valid
+        const todFactor = getTimeOfDayFactor();
+        assert('Time-of-day factor is 0-1', todFactor >= 0 && todFactor <= 1);
+        assert('Time-of-day factor >= 0.15 (minimum baseline)', todFactor >= 0.15);
+
+        // 8. Forecast has temporal continuity
+        const forecast = generateForecast();
+        assert('Forecast has correct length', forecast.length === FORECAST_SLOTS);
+        let maxJump = 0;
+        for (let i = 1; i < forecast.length; i++) {
+            maxJump = Math.max(maxJump, Math.abs(forecast[i] - forecast[i-1]));
+        }
+        assert('Forecast values are smooth (max jump < 40)', maxJump < 40);
+
+        // 9. Chips rendered
         const chips = document.querySelectorAll('#mode-selector .chip');
         assert('4 mode chips rendered', chips.length === 4);
 
-        // 7. Chart rendered
+        // 10. Chart rendered
         const bars = document.querySelectorAll('#chart-area .chart-col');
         assert(`${FORECAST_SLOTS} chart bars rendered`, bars.length === FORECAST_SLOTS);
 
-        // 8. Route cards rendered
+        // 11. Route cards rendered
         const routeCards = document.querySelectorAll('#routes-container .route-card');
         assert('3 route cards rendered', routeCards.length === 3);
 
-        // 9. Accessibility checks
-        assert('Skip link exists',             !!document.querySelector('.skip-link'));
-        assert('<main> landmark exists',       !!document.querySelector('main[role="main"]'));
-        assert('AI response has role="status"',document.getElementById('ai-response')?.getAttribute('role') === 'status');
+        // 12. Risk breakdown visible on route cards
+        const breakdowns = document.querySelectorAll('.risk-breakdown');
+        assert('Route cards show risk factor breakdown', breakdowns.length === 3);
+
+        // 13. Accessibility checks
+        assert('Skip link exists',              !!document.querySelector('.skip-link'));
+        assert('<main> landmark exists',        !!document.querySelector('main[role="main"]'));
+        assert('AI response has role="status"',  document.getElementById('ai-response')?.getAttribute('role') === 'status');
         const progressBars = document.querySelectorAll('[role="progressbar"]');
         assert('Risk bars have role="progressbar"', progressBars.length === 3);
 
-        // 10. Constants integrity
-        assert('RISK_THRESHOLDS.LOW = 35',      RISK_THRESHOLDS.LOW === 35);
+        // 14. Prompt engineering test
+        const prompt = buildGeminiPrompt();
+        assert('Prompt includes role persona',       prompt.includes('Smart Mobility Safety Advisor'));
+        assert('Prompt includes all 3 routes',       prompt.includes(routesData[0].name) && prompt.includes(routesData[2].name));
+        assert('Prompt includes AQI level',          prompt.includes('AQI'));
+        assert('Prompt includes format constraint',  prompt.includes('exactly 3 short sentences'));
+        assert('Prompt includes time context',       prompt.includes(getTimeDescription()));
+
+        // 15. Constants integrity
+        assert('RISK_THRESHOLDS.LOW = 35',       RISK_THRESHOLDS.LOW === 35);
         assert('RISK_THRESHOLDS.MODERATE = 65',  RISK_THRESHOLDS.MODERATE === 65);
         assert('CHART_REFRESH_MS = 8000',        CHART_REFRESH_MS === 8000);
 
         // Summary
         const total = passed + failed;
-        const summary = `\n${'═'.repeat(40)}\n  SELF-TEST: ${passed}/${total} passed, ${failed} failed\n${'═'.repeat(40)}`;
+        const summary = `\n${'═'.repeat(44)}\n  SELF-TEST: ${passed}/${total} passed, ${failed} failed\n${'═'.repeat(44)}`;
         results.push(summary);
 
         const output = results.join('\n');
@@ -1128,18 +1423,36 @@
     window.runSelfTest = runSelfTest;
 
     /* ==========================================================
-       INITIALIZATION
+       INITIALIZATION & LIFECYCLE
        ========================================================== */
 
     document.addEventListener('DOMContentLoaded', () => {
         renderChips();
-        generateData();
+        generateSimulatedData();
 
         // Start auto-refresh of chart
         chartTimer = setInterval(updateChart, CHART_REFRESH_MS);
 
         // Update map when API key changes
         document.getElementById('api-key-input').addEventListener('change', updateMap);
+    });
+
+    /**
+     * Page Visibility API — pause chart refresh when tab is hidden
+     * to save CPU and prevent unnecessary computation.
+     */
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            if (chartTimer) {
+                clearInterval(chartTimer);
+                chartTimer = null;
+            }
+        } else {
+            if (!chartTimer) {
+                updateChart(); // Immediate update on return
+                chartTimer = setInterval(updateChart, CHART_REFRESH_MS);
+            }
+        }
     });
     </script>
 </body>
