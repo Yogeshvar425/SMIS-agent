@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Commute Safety Pulse — AI-powered smart mobility assistant that helps urban commuters pick the safest route by scoring risk across walk, bike, transit, and drive modes.">
+
+    <!-- Content Security Policy -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self';
+                   script-src 'self' 'unsafe-inline' https://maps.googleapis.com;
+                   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+                   font-src https://fonts.gstatic.com;
+                   connect-src https://generativelanguage.googleapis.com;
+                   frame-src https://www.google.com;
+                   img-src 'self' data: https:;">
+
+    <!-- Google Fonts — Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <title>Commute Safety Pulse — Smart Mobility AI Agent</title>
+
+    <style>
+        /* ==============================================
+           DESIGN TOKENS
+           ============================================== */
+        :root {
+            --bg: #f0f4f8;
+            --card: #ffffff;
+            --text-primary: #1a202c;
+            --text-secondary: #4a5568;
+            --text-muted: #a0aec0;
+            --border: #e2e8f0;
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --primary-light: #dbeafe;
+            --risk-low: #10b981;
+            --risk-moderate: #f59e0b;
+            --risk-high: #ef4444;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+            --shadow-lg: 0 8px 30px rgba(0,0,0,0.12);
+            --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ==============================================
+           RESET & BASE
+           ============================================== */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ==============================================
+           ACCESSIBILITY — SKIP NAV
+           ============================================== */
+        .skip-link {
+            position: absolute;
+            top: -100%;
+            left: 16px;
+            background: var(--primary);
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: var(--radius-sm);
+            font-weight: 600;
+            z-index: 1000;
+            text-decoration: none;
+            transition: top var(--transition);
+        }
+        .skip-link:focus {
+            top: 16px;
+        }
+
+        /* ==============================================
+           FOCUS STYLES
+           ============================================== */
+        :focus-visible {
+            outline: 3px solid var(--primary);
+            outline-offset: 2px;
+        }
+
+        /* ==============================================
+           LAYOUT
+           ============================================== */
+        .app-header {
+            background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #3b82f6 100%);
+            color: #fff;
+            padding: 24px 32px;
+            box-shadow: var(--shadow-lg);
+            position: relative;
+            overflow: hidden;
+        }
+        .app-header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -10%;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        .header-inner {
+            max-width: 1080px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+            position: relative;
+            z-index: 1;
+        }
+        .brand { display: flex; align-items: center; gap: 12px; }
+        .brand-icon {
+            width: 44px; height: 44px;
+            background: rgba(255,255,255,0.2);
+            border-radius: var(--radius-sm);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem;
+            backdrop-filter: blur(8px);
+        }
+        .brand h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.02em; }
+        .brand p { font-size: 0.8rem; opacity: 0.8; font-weight: 400; }
+
+        .header-controls {
+            display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+        }
+        .api-input {
+            padding: 10px 14px;
+            border: 1px solid rgba(255,255,255,0.3);
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+            border-radius: var(--radius-sm);
+            font-size: 0.9rem;
+            min-width: 240px;
+            font-family: inherit;
+            backdrop-filter: blur(8px);
+            transition: border-color var(--transition), background var(--transition);
+        }
+        .api-input::placeholder { color: rgba(255,255,255,0.6); }
+        .api-input:focus { border-color: #fff; background: rgba(255,255,255,0.25); outline: none; }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            font-family: inherit;
+            transition: all var(--transition);
+            display: inline-flex; align-items: center; gap: 6px;
+        }
+        .btn-refresh {
+            background: rgba(255,255,255,0.2);
+            color: #fff;
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        .btn-refresh:hover:not(:disabled) { background: rgba(255,255,255,0.35); }
+        .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .container {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 28px 24px 48px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* ==============================================
+           MODE CHIPS
+           ============================================== */
+        .section-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .chips { display: flex; gap: 10px; flex-wrap: wrap; }
+        .chip {
+            padding: 10px 22px;
+            border-radius: 24px;
+            border: 1.5px solid var(--border);
+            background: var(--card);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.9rem;
+            font-family: inherit;
+            box-shadow: var(--shadow-sm);
+            transition: all var(--transition);
+            display: inline-flex; align-items: center; gap: 8px;
+        }
+        .chip:hover { border-color: var(--primary); color: var(--primary); transform: translateY(-1px); }
+        .chip[aria-pressed="true"] {
+            background: var(--primary);
+            color: #fff;
+            border-color: var(--primary);
+            box-shadow: 0 4px 14px rgba(59,130,246,0.35);
+        }
+
+        /* ==============================================
+           CARDS
+           ============================================== */
+        .card {
+            background: var(--card);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-md);
+            padding: 24px;
+            transition: box-shadow var(--transition), transform var(--transition);
+        }
+        .card:hover { box-shadow: var(--shadow-lg); }
+        .card-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+        .card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 10px; }
+
+        .grid-row {
+            display: grid;
+            gap: 20px;
+        }
+        .grid-3 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+        .grid-2 { grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); }
+
+        /* ==============================================
+           METRIC CARDS
+           ============================================== */
+        .metric-card { position: relative; overflow: hidden; }
+        .metric-card::after {
+            content: '';
+            position: absolute;
+            top: 0; right: 0;
+            width: 80px; height: 80px;
+            border-radius: 0 0 0 80px;
+            opacity: 0.08;
+        }
+        .metric-card.congestion::after { background: var(--primary); }
+        .metric-card.incidents::after { background: var(--risk-high); }
+        .metric-card.aqi::after { background: var(--risk-low); }
+
+        .metric-icon {
+            width: 40px; height: 40px;
+            border-radius: var(--radius-sm);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.2rem;
+            margin-bottom: 12px;
+        }
+        .congestion .metric-icon { background: var(--primary-light); }
+        .incidents .metric-icon { background: #fee2e2; }
+        .aqi .metric-icon { background: #d1fae5; }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+        }
+        .metric-desc {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* ==============================================
+           ROUTE CARDS
+           ============================================== */
+        .route-card { display: flex; flex-direction: column; gap: 12px; }
+        .route-header { display: flex; justify-content: space-between; align-items: flex-start; }
+        .route-name { font-size: 1.05rem; font-weight: 700; }
+        .route-eta {
+            font-size: 0.8rem;
+            font-weight: 600;
+            background: var(--bg);
+            padding: 4px 10px;
+            border-radius: 12px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .risk-track {
+            width: 100%; height: 8px;
+            background: #f1f5f9;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .risk-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease, background-color 0.5s ease;
+        }
+        .risk-meta {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 0.85rem;
+        }
+        .risk-score { font-weight: 600; color: var(--text-secondary); }
+        .risk-tag {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 3px 10px;
+            border-radius: 12px;
+        }
+        .risk-tag.low { background: #d1fae5; color: #065f46; }
+        .risk-tag.moderate { background: #fef3c7; color: #92400e; }
+        .risk-tag.high { background: #fee2e2; color: #991b1b; }
+
+        /* ==============================================
+           FORECAST CHART
+           ============================================== */
+        .chart-area {
+            display: flex; align-items: flex-end;
+            height: 150px; gap: 12px;
+            padding-top: 16px;
+            border-bottom: 2px solid var(--border);
+            margin: 16px 0 8px;
+        }
+        .chart-col {
+            flex: 1;
+            display: flex; flex-direction: column;
+            justify-content: flex-end; align-items: center;
+            height: 100%; gap: 6px;
+        }
+        .bar {
+            width: 100%; max-width: 50px;
+            border-radius: 6px 6px 0 0;
+            transition: height 0.6s ease, background-color 0.6s ease;
+            position: relative;
+        }
+        .bar-value {
+            position: absolute; top: -20px;
+            font-size: 0.7rem; font-weight: 700;
+            color: var(--text-secondary);
+            width: 100%; text-align: center;
+        }
+        .bar-label {
+            font-size: 0.75rem; color: var(--text-muted); font-weight: 500;
+        }
+
+        /* ==============================================
+           GOOGLE MAPS EMBED
+           ============================================== */
+        .map-container {
+            width: 100%; height: 220px;
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            background: var(--bg);
+            position: relative;
+        }
+        .map-container iframe {
+            width: 100%; height: 100%; border: none;
+        }
+        .map-placeholder {
+            width: 100%; height: 100%;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 8px; color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        .map-placeholder span { font-size: 2rem; }
+
+        /* ==============================================
+           AI RECOMMENDATION
+           ============================================== */
+        .ai-card {
+            background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%);
+            border: 1px solid #bfdbfe;
+            position: relative;
+            overflow: hidden;
+        }
+        .ai-card::before {
+            content: '';
+            position: absolute;
+            top: -40px; right: -40px;
+            width: 120px; height: 120px;
+            background: radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        .ai-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: var(--primary);
+            color: #fff;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 4px 10px;
+            border-radius: 12px;
+            margin-bottom: 10px;
+        }
+        .ai-response {
+            font-size: 1rem;
+            font-weight: 500;
+            color: #1e40af;
+            padding: 16px;
+            background: rgba(255,255,255,0.6);
+            border-radius: var(--radius-sm);
+            min-height: 56px;
+            line-height: 1.6;
+            backdrop-filter: blur(4px);
+        }
+        .ai-response.loading {
+            color: var(--text-muted);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* ==============================================
+           STATUS BAR
+           ============================================== */
+        .status-bar {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 0.8rem; color: var(--text-muted);
+            padding: 8px 0;
+            flex-wrap: wrap; gap: 8px;
+        }
+        .status-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--risk-low);
+            margin-right: 6px;
+            animation: blink 2s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* ==============================================
+           TEST PANEL
+           ============================================== */
+        .test-panel {
+            display: none;
+            background: #1a202c;
+            color: #a0f0a0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            padding: 20px;
+            border-radius: var(--radius-md);
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .test-panel.visible { display: block; }
+        .test-pass { color: #48bb78; }
+        .test-fail { color: #f56565; }
+
+        /* ==============================================
+           RESPONSIVE
+           ============================================== */
+        @media (max-width: 640px) {
+            .app-header { padding: 16px; }
+            .brand h1 { font-size: 1.1rem; }
+            .api-input { min-width: 180px; }
+            .container { padding: 16px 12px 32px; gap: 16px; }
+            .grid-3 { grid-template-columns: 1fr; }
+            .grid-2 { grid-template-columns: 1fr; }
+            .metric-value { font-size: 1.6rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Accessibility: Skip to main content -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <!-- ==========================================
+         HEADER
+         ========================================== -->
+    <header class="app-header" role="banner">
+        <div class="header-inner">
+            <div class="brand">
+                <div class="brand-icon" aria-hidden="true">🛡️</div>
+                <div>
+                    <h1>Commute Safety Pulse</h1>
+                    <p>Smart Mobility AI Agent</p>
+                </div>
+            </div>
+            <div class="header-controls">
+                <label for="api-key-input" class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;">
+                    Gemini API Key
+                </label>
+                <input
+                    type="password"
+                    id="api-key-input"
+                    class="api-input"
+                    placeholder="Enter Gemini API Key…"
+                    aria-label="Gemini API Key"
+                    autocomplete="off"
+                />
+                <button
+                    class="btn btn-refresh"
+                    id="btn-refresh"
+                    onclick="handleRefresh()"
+                    aria-label="Refresh simulated data and AI recommendation"
+                >
+                    ↻ Refresh
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- ==========================================
+         MAIN CONTENT
+         ========================================== -->
+    <main id="main-content" class="container" role="main">
+
+        <!-- Status Bar -->
+        <div class="status-bar" aria-live="polite">
+            <span><span class="status-dot" aria-hidden="true"></span>Simulated real-time data — refreshes every 8 s</span>
+            <span id="last-updated">Last updated: —</span>
+        </div>
+
+        <!-- Mode Selector -->
+        <section aria-labelledby="mode-heading">
+            <p class="section-label" id="mode-heading">Travel Mode</p>
+            <div class="chips" id="mode-selector" role="group" aria-label="Select travel mode">
+                <!-- Rendered by JS -->
+            </div>
+        </section>
+
+        <!-- Metric Cards -->
+        <section aria-labelledby="metrics-heading">
+            <p class="section-label" id="metrics-heading">Current Conditions</p>
+            <div class="grid-row grid-3" aria-live="polite">
+                <div class="card metric-card congestion" aria-label="Congestion Index metric">
+                    <div class="metric-icon" aria-hidden="true">🚦</div>
+                    <p class="card-title">Congestion Index</p>
+                    <div class="metric-value" id="val-congestion">—</div>
+                    <p class="metric-desc">Based on simulated traffic flow</p>
+                </div>
+                <div class="card metric-card incidents" aria-label="Incidents Nearby metric">
+                    <div class="metric-icon" aria-hidden="true">⚠️</div>
+                    <p class="card-title">Incidents Nearby</p>
+                    <div class="metric-value" id="val-incidents">—</div>
+                    <p class="metric-desc">Reported in the last hour</p>
+                </div>
+                <div class="card metric-card aqi" aria-label="Air Quality Index metric">
+                    <div class="metric-icon" aria-hidden="true">🌿</div>
+                    <p class="card-title">Air Quality (AQI)</p>
+                    <div class="metric-value" id="val-aqi">—</div>
+                    <p class="metric-desc">Current ambient reading</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Route Cards -->
+        <section aria-labelledby="routes-heading">
+            <p class="section-label" id="routes-heading">Available Routes</p>
+            <div class="grid-row grid-3" id="routes-container" aria-live="polite">
+                <!-- Rendered by JS -->
+            </div>
+        </section>
+
+        <!-- Bottom Row: Chart + Map -->
+        <div class="grid-row grid-2">
+            <!-- Congestion Forecast -->
+            <section class="card" aria-labelledby="forecast-heading">
+                <h3 id="forecast-heading">📊 Congestion Forecast</h3>
+                <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0;">Next 2 hours · updates every 8 s</p>
+                <div class="chart-area" id="chart-area" role="img" aria-label="Bar chart showing congestion forecast for next 2 hours">
+                    <!-- Rendered by JS -->
+                </div>
+                <p class="sr-only" id="chart-summary" aria-live="polite" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;">
+                    <!-- Screen reader text summary of chart data -->
+                </p>
+            </section>
+
+            <!-- Google Maps Embed -->
+            <section class="card" aria-labelledby="map-heading">
+                <h3 id="map-heading">📍 Route Area — Google Maps</h3>
+                <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px;">Powered by Google Maps Embed API</p>
+                <div class="map-container" id="map-container">
+                    <div class="map-placeholder" id="map-placeholder">
+                        <span aria-hidden="true">🗺️</span>
+                        <p>Enter your API key to load the map</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- AI Recommendation -->
+        <section class="card ai-card" aria-labelledby="ai-heading">
+            <div class="ai-badge">✨ Powered by Gemini 2.0 Flash</div>
+            <h3 id="ai-heading">AI Route Recommendation</h3>
+            <div class="ai-response" id="ai-response" role="status" aria-live="polite">
+                Enter your API key and select a mode to receive an AI-powered recommendation.
+            </div>
+        </section>
+
+        <!-- Self-Test Panel (hidden by default) -->
+        <div class="test-panel" id="test-panel" role="log" aria-label="Self-test results"></div>
+
+    </main>
+
+    <!-- ==========================================
+         APPLICATION LOGIC
+         ========================================== -->
+    <script>
+    "use strict";
+
+    /* ==========================================================
+       CONSTANTS
+       ========================================================== */
+
+    /** Risk score thresholds for color coding */
+    const RISK_THRESHOLDS = { LOW: 35, MODERATE: 65 };
+
+    /** Chart auto-refresh interval in milliseconds */
+    const CHART_REFRESH_MS = 8000;
+
+    /** Minimum cooldown between Refresh clicks (ms) */
+    const REFRESH_COOLDOWN_MS = 5000;
+
+    /** Number of forecast time slots */
+    const FORECAST_SLOTS = 6;
+
+    /** Minutes between each forecast slot */
+    const FORECAST_INTERVAL_MIN = 20;
+
+    /** Maximum random incidents */
+    const MAX_INCIDENTS = 5;
+
+    /** Available travel modes with icons */
+    const MODES = [
+        { id: 'Walk',    icon: '🚶' },
+        { id: 'Bike',    icon: '🚲' },
+        { id: 'Transit', icon: '🚌' },
+        { id: 'Drive',   icon: '🚗' }
+    ];
+
+    /** Route templates per mode (name + base ETA) */
+    const ROUTE_TEMPLATES = {
+        Walk:    [{ name: 'Park Path',       eta: '15 min' }, { name: 'Main Street',    eta: '12 min' }, { name: 'Riverside Walk', eta: '18 min' }],
+        Bike:    [{ name: 'Protected Lane',  eta: '8 min'  }, { name: 'River Trail',    eta: '10 min' }, { name: 'Busy Avenue',    eta: '6 min'  }],
+        Transit: [{ name: 'Bus 42',          eta: '25 min' }, { name: 'Subway Red Line',eta: '20 min' }, { name: 'Light Rail',     eta: '22 min' }],
+        Drive:   [{ name: 'Highway 5',       eta: '30 min' }, { name: 'Local Roads',    eta: '40 min' }, { name: 'Toll Road',      eta: '25 min' }]
+    };
+
+    /** Map location queries per mode */
+    const MAP_QUERIES = {
+        Walk:    'Central+Park,New+York',
+        Bike:    'Hudson+River+Greenway,New+York',
+        Transit: 'Grand+Central+Terminal,New+York',
+        Drive:   'Manhattan+Bridge,New+York'
+    };
+
+    /* ==========================================================
+       STATE
+       ========================================================== */
+
+    let currentMode   = 'Walk';
+    let routesData    = [];
+    let congestionIdx = 0;
+    let incidentsVal  = 0;
+    let aqiVal        = 0;
+    let chartTimer    = null;
+    let lastRefresh   = 0;
+
+    /* ==========================================================
+       UTILITY FUNCTIONS
+       ========================================================== */
+
+    /**
+     * Returns the CSS color variable for a given risk score.
+     * @param {number} score — 0-100
+     * @returns {string} CSS color value
+     */
+    function riskColor(score) {
+        if (score < RISK_THRESHOLDS.LOW) return 'var(--risk-low)';
+        if (score < RISK_THRESHOLDS.MODERATE) return 'var(--risk-moderate)';
+        return 'var(--risk-high)';
+    }
+
+    /**
+     * Returns the human-readable risk tag for a score.
+     * @param {number} score — 0-100
+     * @returns {'low'|'moderate'|'high'}
+     */
+    function riskTag(score) {
+        if (score < RISK_THRESHOLDS.LOW) return 'low';
+        if (score < RISK_THRESHOLDS.MODERATE) return 'moderate';
+        return 'high';
+    }
+
+    /**
+     * Returns a random integer from 0 to max (exclusive).
+     * @param {number} max
+     * @returns {number}
+     */
+    function randInt(max) {
+        return Math.floor(Math.random() * max);
+    }
+
+    /**
+     * Returns the current time as a locale string.
+     * @returns {string}
+     */
+    function timestamp() {
+        return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    /**
+     * Sanitizes a string for safe HTML insertion.
+     * @param {string} str
+     * @returns {string}
+     */
+    function sanitize(str) {
+        const el = document.createElement('div');
+        el.textContent = str;
+        return el.innerHTML;
+    }
+
+    /* ==========================================================
+       DATA GENERATION (SIMULATED)
+       ========================================================== */
+
+    /**
+     * Generates fresh simulated data for metrics, routes, and chart.
+     * Updates global state and DOM.
+     */
+    function generateData() {
+        // Metrics
+        congestionIdx = randInt(100);
+        incidentsVal  = randInt(MAX_INCIDENTS + 1);
+        aqiVal        = Math.random() > 0.8
+            ? randInt(100) + 100   // occasionally poor AQI
+            : randInt(80);         // usually good AQI
+
+        document.getElementById('val-congestion').textContent = congestionIdx + ' / 100';
+        document.getElementById('val-incidents').textContent  = incidentsVal;
+        document.getElementById('val-aqi').textContent        = aqiVal;
+
+        // Color the metric values by severity
+        document.getElementById('val-congestion').style.color = riskColor(congestionIdx);
+        document.getElementById('val-aqi').style.color        = aqiVal > 100 ? 'var(--risk-high)' : aqiVal > 50 ? 'var(--risk-moderate)' : 'var(--risk-low)';
+
+        // Routes
+        const templates = ROUTE_TEMPLATES[currentMode];
+        routesData = templates.map(r => {
+            const score = randInt(100);
+            return { ...r, score, tag: riskTag(score), color: riskColor(score) };
+        });
+        routesData.sort((a, b) => a.score - b.score);
+
+        renderRoutes();
+        updateChart();
+        updateTimestamp();
+    }
+
+    /* ==========================================================
+       RENDERING
+       ========================================================== */
+
+    /**
+     * Renders the travel-mode chip buttons.
+     */
+    function renderChips() {
+        const container = document.getElementById('mode-selector');
+        container.innerHTML = MODES.map(m => `
+            <button class="chip"
+                    aria-pressed="${m.id === currentMode}"
+                    data-mode="${sanitize(m.id)}"
+                    id="chip-${sanitize(m.id)}">
+                ${m.icon} ${sanitize(m.id)}
+            </button>
+        `).join('');
+
+        // Event delegation for chips
+        container.querySelectorAll('.chip').forEach(btn => {
+            btn.addEventListener('click', () => setMode(btn.dataset.mode));
+        });
+    }
+
+    /**
+     * Renders the 3 route cards for the current mode.
+     */
+    function renderRoutes() {
+        const container = document.getElementById('routes-container');
+        container.innerHTML = routesData.map((r, i) => `
+            <div class="card route-card" aria-label="${sanitize(r.name)} route, risk score ${r.score} out of 100, ${r.tag} risk">
+                <div class="route-header">
+                    <span class="route-name">${i === 0 ? '⭐ ' : ''}${sanitize(r.name)}</span>
+                    <span class="route-eta">🕒 ${sanitize(r.eta)}</span>
+                </div>
+                <div class="risk-meta">
+                    <span class="risk-score">Risk: ${r.score}/100</span>
+                    <span class="risk-tag ${r.tag}">${r.tag.charAt(0).toUpperCase() + r.tag.slice(1)}</span>
+                </div>
+                <div class="risk-track"
+                     role="progressbar"
+                     aria-valuenow="${r.score}"
+                     aria-valuemin="0"
+                     aria-valuemax="100"
+                     aria-label="${sanitize(r.name)} risk level">
+                    <div class="risk-fill" style="width:${r.score}%;background:${r.color}"></div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    /**
+     * Updates the forecast bar chart with fresh random data.
+     * Reuses existing DOM elements when possible for efficiency.
+     */
+    function updateChart() {
+        const container = document.getElementById('chart-area');
+        const values = Array.from({ length: FORECAST_SLOTS }, () => randInt(100));
+        const summaryParts = [];
+
+        // If bars already exist, update in-place (efficient); otherwise create
+        const existingCols = container.querySelectorAll('.chart-col');
+
+        if (existingCols.length === FORECAST_SLOTS) {
+            // In-place update — no DOM teardown
+            existingCols.forEach((col, i) => {
+                const bar = col.querySelector('.bar');
+                const valLabel = col.querySelector('.bar-value');
+                bar.style.height = values[i] + '%';
+                bar.style.backgroundColor = riskColor(values[i]);
+                valLabel.textContent = values[i];
+                const mins = i * FORECAST_INTERVAL_MIN;
+                summaryParts.push(`+${mins}min: ${values[i]}`);
+            });
+        } else {
+            // First render — build DOM
+            container.innerHTML = values.map((v, i) => {
+                const mins = i * FORECAST_INTERVAL_MIN;
+                summaryParts.push(`+${mins}min: ${v}`);
+                return `
+                    <div class="chart-col">
+                        <div class="bar" style="height:${v}%;background:${riskColor(v)}">
+                            <span class="bar-value">${v}</span>
+                        </div>
+                        <span class="bar-label">+${mins}m</span>
+                    </div>`;
+            }).join('');
+        }
+
+        // Update screen-reader summary
+        document.getElementById('chart-summary').textContent =
+            'Congestion forecast values: ' + summaryParts.join(', ');
+    }
+
+    /**
+     * Updates the Google Maps embed based on the current mode and API key.
+     */
+    function updateMap() {
+        const key = document.getElementById('api-key-input').value.trim();
+        const container = document.getElementById('map-container');
+
+        if (!key) {
+            container.innerHTML = `
+                <div class="map-placeholder" id="map-placeholder">
+                    <span aria-hidden="true">🗺️</span>
+                    <p>Enter your API key to load the map</p>
+                </div>`;
+            return;
+        }
+
+        const query = MAP_QUERIES[currentMode] || MAP_QUERIES.Walk;
+        container.innerHTML = `
+            <iframe
+                title="Google Maps showing route area for ${sanitize(currentMode)} mode"
+                src="https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(key)}&q=${query}&zoom=14"
+                allowfullscreen
+                loading="lazy"
+                referrerpolicy="no-referrer-when-downgrade">
+            </iframe>`;
+    }
+
+    /**
+     * Updates the "Last updated" timestamp in the status bar.
+     */
+    function updateTimestamp() {
+        document.getElementById('last-updated').textContent = 'Last updated: ' + timestamp();
+    }
+
+    /* ==========================================================
+       MODE SWITCHING
+       ========================================================== */
+
+    /**
+     * Switches the active travel mode and refreshes all data.
+     * @param {string} mode — one of Walk, Bike, Transit, Drive
+     */
+    function setMode(mode) {
+        if (!ROUTE_TEMPLATES[mode]) return;
+        currentMode = mode;
+        renderChips();
+        generateData();
+        updateMap();
+        fetchAIRecommendation();
+    }
+
+    /* ==========================================================
+       REFRESH WITH DEBOUNCE
+       ========================================================== */
+
+    /**
+     * Handles the Refresh button click with a cooldown to prevent API abuse.
+     */
+    function handleRefresh() {
+        const now = Date.now();
+        const btn = document.getElementById('btn-refresh');
+
+        if (now - lastRefresh < REFRESH_COOLDOWN_MS) {
+            const remaining = Math.ceil((REFRESH_COOLDOWN_MS - (now - lastRefresh)) / 1000);
+            btn.textContent = `Wait ${remaining}s…`;
+            setTimeout(() => { btn.textContent = '↻ Refresh'; }, 1500);
+            return;
+        }
+
+        lastRefresh = now;
+        btn.disabled = true;
+        btn.textContent = '↻ Refreshing…';
+
+        generateData();
+        updateMap();
+        fetchAIRecommendation();
+
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = '↻ Refresh';
+        }, REFRESH_COOLDOWN_MS);
+    }
+
+    /* ==========================================================
+       GEMINI API INTEGRATION
+       ========================================================== */
+
+    /**
+     * Calls the Gemini 2.0 Flash API with a prompt built from current state.
+     * Displays the plain-text response in the AI recommendation box.
+     */
+    async function fetchAIRecommendation() {
+        const apiKey = document.getElementById('api-key-input').value.trim();
+        const box    = document.getElementById('ai-response');
+
+        if (!apiKey) {
+            box.classList.remove('loading');
+            box.textContent = 'Please enter a Gemini API Key above to receive an AI-powered recommendation.';
+            return;
+        }
+
+        // Basic API key format validation
+        if (apiKey.length < 10) {
+            box.classList.remove('loading');
+            box.textContent = 'The API key appears too short. Please check and try again.';
+            return;
+        }
+
+        const topRoute = routesData[0];
+        if (!topRoute) {
+            box.textContent = 'No route data available. Please refresh.';
+            return;
+        }
+
+        const prompt = `I am commuting by ${currentMode}. My best route is ${topRoute.name} with a risk score of ${topRoute.score}/100. Current congestion index is ${congestionIdx}. Give me one short, direct sentence recommending whether to take this route and one alternative action if risk is high.`;
+
+        box.classList.add('loading');
+        box.textContent = 'Analyzing current conditions…';
+
+        try {
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }]
+                })
+            });
+
+            const data = await res.json();
+            box.classList.remove('loading');
+
+            if (data.error) {
+                box.textContent = `API Error: ${sanitize(data.error.message)}`;
+            } else if (data.candidates && data.candidates.length > 0 &&
+                       data.candidates[0].content &&
+                       data.candidates[0].content.parts &&
+                       data.candidates[0].content.parts[0]) {
+                box.textContent = data.candidates[0].content.parts[0].text;
+            } else {
+                box.textContent = 'Received an unexpected response structure from the API.';
+            }
+        } catch (err) {
+            box.classList.remove('loading');
+            box.textContent = 'Network error — unable to reach Gemini API. Check your connection and API key.';
+            console.error('[Commute Safety Pulse] Gemini API error:', err);
+        }
+    }
+
+    /* ==========================================================
+       BUILT-IN SELF-TEST SUITE
+       ========================================================== */
+
+    /**
+     * Runs a suite of automated self-tests to validate core functionality.
+     * Results are logged to the console and optionally displayed in the test panel.
+     * Call via browser console: runSelfTest()
+     * @returns {{ passed: number, failed: number, total: number }}
+     */
+    function runSelfTest() {
+        const results = [];
+        let passed = 0;
+        let failed = 0;
+
+        function assert(label, condition) {
+            if (condition) {
+                results.push(`✅ PASS: ${label}`);
+                passed++;
+            } else {
+                results.push(`❌ FAIL: ${label}`);
+                failed++;
+            }
+        }
+
+        // 1. DOM elements exist
+        const requiredIds = [
+            'api-key-input', 'btn-refresh', 'mode-selector',
+            'val-congestion', 'val-incidents', 'val-aqi',
+            'routes-container', 'chart-area', 'ai-response',
+            'map-container', 'main-content'
+        ];
+        requiredIds.forEach(id => {
+            assert(`DOM element #${id} exists`, !!document.getElementById(id));
+        });
+
+        // 2. Risk color mapping
+        assert('Risk color: score 10 → low (green)',     riskColor(10).includes('low'));
+        assert('Risk color: score 50 → moderate (amber)', riskColor(50).includes('moderate'));
+        assert('Risk color: score 80 → high (red)',       riskColor(80).includes('high'));
+
+        // 3. Risk tag mapping
+        assert('Risk tag: score 0 → "low"',      riskTag(0)  === 'low');
+        assert('Risk tag: score 34 → "low"',     riskTag(34) === 'low');
+        assert('Risk tag: score 35 → "moderate"',riskTag(35) === 'moderate');
+        assert('Risk tag: score 64 → "moderate"',riskTag(64) === 'moderate');
+        assert('Risk tag: score 65 → "high"',    riskTag(65) === 'high');
+        assert('Risk tag: score 99 → "high"',    riskTag(99) === 'high');
+
+        // 4. Route data generation
+        generateData();
+        assert('Routes array has 3 items',        routesData.length === 3);
+        assert('Routes sorted ascending by score', routesData[0].score <= routesData[1].score && routesData[1].score <= routesData[2].score);
+        routesData.forEach((r, i) => {
+            assert(`Route[${i}] score 0-99 range`, r.score >= 0 && r.score < 100);
+            assert(`Route[${i}] has name`,          typeof r.name === 'string' && r.name.length > 0);
+            assert(`Route[${i}] has eta`,            typeof r.eta === 'string' && r.eta.length > 0);
+            assert(`Route[${i}] has tag`,            ['low', 'moderate', 'high'].includes(r.tag));
+        });
+
+        // 5. Metrics in valid range
+        assert('Congestion index 0-99', congestionIdx >= 0 && congestionIdx < 100);
+        assert('Incidents 0-5',         incidentsVal >= 0 && incidentsVal <= MAX_INCIDENTS);
+        assert('AQI >= 0',              aqiVal >= 0);
+
+        // 6. Chips rendered
+        const chips = document.querySelectorAll('#mode-selector .chip');
+        assert('4 mode chips rendered', chips.length === 4);
+
+        // 7. Chart rendered
+        const bars = document.querySelectorAll('#chart-area .chart-col');
+        assert(`${FORECAST_SLOTS} chart bars rendered`, bars.length === FORECAST_SLOTS);
+
+        // 8. Route cards rendered
+        const routeCards = document.querySelectorAll('#routes-container .route-card');
+        assert('3 route cards rendered', routeCards.length === 3);
+
+        // 9. Accessibility checks
+        assert('Skip link exists',             !!document.querySelector('.skip-link'));
+        assert('<main> landmark exists',       !!document.querySelector('main[role="main"]'));
+        assert('AI response has role="status"',document.getElementById('ai-response')?.getAttribute('role') === 'status');
+        const progressBars = document.querySelectorAll('[role="progressbar"]');
+        assert('Risk bars have role="progressbar"', progressBars.length === 3);
+
+        // 10. Constants integrity
+        assert('RISK_THRESHOLDS.LOW = 35',      RISK_THRESHOLDS.LOW === 35);
+        assert('RISK_THRESHOLDS.MODERATE = 65',  RISK_THRESHOLDS.MODERATE === 65);
+        assert('CHART_REFRESH_MS = 8000',        CHART_REFRESH_MS === 8000);
+
+        // Summary
+        const total = passed + failed;
+        const summary = `\n${'═'.repeat(40)}\n  SELF-TEST: ${passed}/${total} passed, ${failed} failed\n${'═'.repeat(40)}`;
+        results.push(summary);
+
+        const output = results.join('\n');
+        console.log(output);
+
+        // Show in test panel
+        const panel = document.getElementById('test-panel');
+        panel.classList.add('visible');
+        panel.innerHTML = results.map(line =>
+            line.startsWith('✅') ? `<span class="test-pass">${sanitize(line)}</span>` :
+            line.startsWith('❌') ? `<span class="test-fail">${sanitize(line)}</span>` :
+            sanitize(line)
+        ).join('\n');
+
+        return { passed, failed, total };
+    }
+
+    // Expose to console
+    window.runSelfTest = runSelfTest;
+
+    /* ==========================================================
+       INITIALIZATION
+       ========================================================== */
+
+    document.addEventListener('DOMContentLoaded', () => {
+        renderChips();
+        generateData();
+
+        // Start auto-refresh of chart
+        chartTimer = setInterval(updateChart, CHART_REFRESH_MS);
+
+        // Update map when API key changes
+        document.getElementById('api-key-input').addEventListener('change', updateMap);
+    });
+    </script>
+</body>
+</html>
