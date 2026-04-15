@@ -8,12 +8,12 @@
     <!-- Content Security Policy -->
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'self';
-                   script-src 'self' 'unsafe-inline' https://maps.googleapis.com;
+                   script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com;
                    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-                   font-src https://fonts.gstatic.com;
-                   connect-src https://generativelanguage.googleapis.com;
+                   font-src https://fonts.gstatic.com https://fonts.googleapis.com;
+                   connect-src https://generativelanguage.googleapis.com https://maps.googleapis.com;
                    frame-src https://www.google.com;
-                   img-src 'self' data: https:;">
+                   img-src 'self' data: https: blob:;">
 
     <!-- Google Fonts — Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -387,14 +387,11 @@
            GOOGLE MAPS EMBED
            ============================================== */
         .map-container {
-            width: 100%; height: 220px;
+            width: 100%; height: 300px;
             border-radius: var(--radius-sm);
             overflow: hidden;
             background: var(--bg);
             position: relative;
-        }
-        .map-container iframe {
-            width: 100%; height: 100%; border: none;
         }
         .map-placeholder {
             width: 100%; height: 100%;
@@ -404,6 +401,19 @@
             font-size: 0.9rem;
         }
         .map-placeholder span { font-size: 2rem; }
+        .map-route-info {
+            margin-top: 10px;
+            padding: 10px 14px;
+            background: var(--bg);
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            display: none;
+        }
+        .map-route-info.visible { display: flex; gap: 16px; flex-wrap: wrap; }
+        .map-route-info .info-item {
+            display: flex; align-items: center; gap: 5px; font-weight: 500;
+        }
 
         /* ==============================================
            AI RECOMMENDATION
@@ -616,15 +626,20 @@
                 </p>
             </section>
 
-            <!-- Google Maps Embed -->
+            <!-- Google Maps with Directions -->
             <section class="card" aria-labelledby="map-heading">
-                <h3 id="map-heading">📍 Route Area — Google Maps</h3>
-                <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px;">Powered by Google Maps Embed API</p>
+                <h3 id="map-heading">📍 Live Route Map — Google Maps</h3>
+                <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px;">Powered by Google Maps JavaScript API + Directions Service</p>
                 <div class="map-container" id="map-container">
                     <div class="map-placeholder" id="map-placeholder">
                         <span aria-hidden="true">🗺️</span>
-                        <p>Enter your API key to load the map</p>
+                        <p>Enter your API key to load the interactive route map</p>
                     </div>
+                </div>
+                <div class="map-route-info" id="map-route-info" aria-live="polite">
+                    <span class="info-item" id="map-distance">📏 —</span>
+                    <span class="info-item" id="map-duration">🕒 —</span>
+                    <span class="info-item" id="map-mode-label">🚗 —</span>
                 </div>
             </section>
         </div>
@@ -719,12 +734,23 @@
         ]
     };
 
-    /** Map location queries per mode */
-    const MAP_QUERIES = {
-        Walk:    'Central+Park,New+York',
-        Bike:    'Hudson+River+Greenway,New+York',
-        Transit: 'Grand+Central+Terminal,New+York',
-        Drive:   'Manhattan+Bridge,New+York'
+    /**
+     * Route waypoints for Google Maps Directions Service.
+     * Each mode has origin/destination coordinates in Bangalore.
+     */
+    const ROUTE_WAYPOINTS = {
+        Walk:    { origin: { lat: 12.9716, lng: 77.5946 }, destination: { lat: 12.9766, lng: 77.5993 }, label: 'Majestic → Cubbon Park' },
+        Bike:    { origin: { lat: 12.9716, lng: 77.5946 }, destination: { lat: 12.9352, lng: 77.6245 }, label: 'Majestic → Koramangala' },
+        Transit: { origin: { lat: 12.9716, lng: 77.5946 }, destination: { lat: 12.9698, lng: 77.7500 }, label: 'Majestic → Whitefield' },
+        Drive:   { origin: { lat: 12.9716, lng: 77.5946 }, destination: { lat: 12.8399, lng: 77.6770 }, label: 'Majestic → Electronic City' }
+    };
+
+    /** Maps travel mode IDs to Google Maps TravelMode constants */
+    const GOOGLE_TRAVEL_MODES = {
+        Walk:    'WALKING',
+        Bike:    'BICYCLING',
+        Transit: 'TRANSIT',
+        Drive:   'DRIVING'
     };
 
     /* ==========================================================
@@ -739,6 +765,10 @@
     let chartTimer         = null;
     let lastRefresh        = 0;
     let currentAbortCtrl   = null;  // AbortController for Gemini API calls
+    let gMap               = null;  // Google Maps instance
+    let gDirectionsService = null;  // Directions Service
+    let gDirectionsRenderer= null;  // Directions Renderer
+    let gMapsLoaded        = false; // Whether the Maps JS API script has loaded
 
     /* ==========================================================
        UTILITY FUNCTIONS
@@ -1072,30 +1102,131 @@
     }
 
     /**
-     * Updates the Google Maps embed based on the current mode and API key.
+     * Dynamically loads the Google Maps JavaScript API script.
+     * Called once when the user first enters their API key.
+     * @param {string} apiKey — the user's Google API key
+     */
+    function loadGoogleMapsScript(apiKey) {
+        if (gMapsLoaded || document.getElementById('google-maps-script')) return;
+
+        const script = document.createElement('script');
+        script.id = 'google-maps-script';
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&callback=onGoogleMapsReady`;
+        script.async = true;
+        script.defer = true;
+        script.onerror = () => {
+            const container = document.getElementById('map-container');
+            container.innerHTML = `
+                <div class="map-placeholder">
+                    <span aria-hidden="true">⚠️</span>
+                    <p>Failed to load Google Maps. Check your API key and ensure Maps JavaScript API is enabled.</p>
+                </div>`;
+        };
+        document.body.appendChild(script);
+    }
+
+    /**
+     * Callback fired when Google Maps JS API finishes loading.
+     * Initializes the map, DirectionsService, and DirectionsRenderer.
+     */
+    window.onGoogleMapsReady = function() {
+        gMapsLoaded = true;
+        const container = document.getElementById('map-container');
+        container.innerHTML = ''; // Clear placeholder
+
+        const waypoints = ROUTE_WAYPOINTS[currentMode];
+        gMap = new google.maps.Map(container, {
+            zoom: 13,
+            center: waypoints.origin,
+            mapTypeControl: false,
+            streetViewControl: false,
+            fullscreenControl: true,
+            styles: [
+                { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+                { featureType: 'transit.station', stylers: [{ visibility: 'simplified' }] }
+            ]
+        });
+
+        gDirectionsService  = new google.maps.DirectionsService();
+        gDirectionsRenderer = new google.maps.DirectionsRenderer({
+            map: gMap,
+            suppressMarkers: false,
+            polylineOptions: {
+                strokeColor: '#3b82f6',
+                strokeWeight: 5,
+                strokeOpacity: 0.8
+            }
+        });
+
+        renderDirections();
+    };
+
+    /**
+     * Renders directions on the map for the current travel mode.
+     * Uses Google Maps DirectionsService to compute the route between
+     * the origin and destination waypoints, then displays it
+     * with the DirectionsRenderer.
+     *
+     * Also extracts distance and duration from the API response
+     * and displays them in the route info panel.
+     */
+    function renderDirections() {
+        if (!gDirectionsService || !gDirectionsRenderer) return;
+
+        const waypoints  = ROUTE_WAYPOINTS[currentMode];
+        const travelMode = GOOGLE_TRAVEL_MODES[currentMode] || 'DRIVING';
+
+        gDirectionsService.route(
+            {
+                origin: waypoints.origin,
+                destination: waypoints.destination,
+                travelMode: google.maps.TravelMode[travelMode]
+            },
+            (result, status) => {
+                if (status === 'OK') {
+                    gDirectionsRenderer.setDirections(result);
+
+                    // Extract and display route info
+                    const leg = result.routes[0].legs[0];
+                    const infoPanel = document.getElementById('map-route-info');
+                    infoPanel.classList.add('visible');
+                    document.getElementById('map-distance').textContent = `📏 ${leg.distance.text}`;
+                    document.getElementById('map-duration').textContent = `🕒 ${leg.duration.text}`;
+                    document.getElementById('map-mode-label').textContent =
+                        `${MODES.find(m => m.id === currentMode)?.icon || '🚗'} ${waypoints.label}`;
+                } else {
+                    console.warn('[CSP] Directions request failed:', status);
+                    const infoPanel = document.getElementById('map-route-info');
+                    infoPanel.classList.add('visible');
+                    document.getElementById('map-distance').textContent = '📏 —';
+                    document.getElementById('map-duration').textContent = `⚠️ ${status}`;
+                    document.getElementById('map-mode-label').textContent = `Route unavailable for ${currentMode}`;
+                }
+            }
+        );
+    }
+
+    /**
+     * Updates the map — loads script on first call, re-renders directions on subsequent calls.
      */
     function updateMap() {
         const key = document.getElementById('api-key-input').value.trim();
-        const container = document.getElementById('map-container');
-
         if (!key) {
+            const container = document.getElementById('map-container');
             container.innerHTML = `
                 <div class="map-placeholder" id="map-placeholder">
                     <span aria-hidden="true">🗺️</span>
-                    <p>Enter your API key to load the map</p>
+                    <p>Enter your API key to load the interactive route map</p>
                 </div>`;
+            document.getElementById('map-route-info').classList.remove('visible');
             return;
         }
 
-        const query = MAP_QUERIES[currentMode] || MAP_QUERIES.Walk;
-        container.innerHTML = `
-            <iframe
-                title="Google Maps showing route area for ${sanitize(currentMode)} mode"
-                src="https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(key)}&q=${query}&zoom=14"
-                allowfullscreen
-                loading="lazy"
-                referrerpolicy="no-referrer-when-downgrade">
-            </iframe>`;
+        if (!gMapsLoaded) {
+            loadGoogleMapsScript(key);
+        } else {
+            renderDirections();
+        }
     }
 
     /**
@@ -1433,8 +1564,12 @@ FORMAT: Reply in exactly 3 short sentences. No markdown, no bullets, plain text 
         // Start auto-refresh of chart
         chartTimer = setInterval(updateChart, CHART_REFRESH_MS);
 
-        // Update map when API key changes
-        document.getElementById('api-key-input').addEventListener('change', updateMap);
+        // Load map when API key is entered (on blur/change and Enter key)
+        const apiInput = document.getElementById('api-key-input');
+        apiInput.addEventListener('change', updateMap);
+        apiInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') updateMap();
+        });
     });
 
     /**
