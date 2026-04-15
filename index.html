@@ -215,6 +215,23 @@
         }
 
         /* ==============================================
+           LOCATION INPUTS
+           ============================================== */
+        .location-inputs {
+            display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px;
+        }
+        .loc-input-group {
+            flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 6px;
+        }
+        .loc-input-group label {
+            font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .loc-input {
+            padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.95rem; background: var(--card); font-family: inherit; transition: border-color var(--transition);
+        }
+        .loc-input:focus { border-color: var(--primary); outline: none; }
+
+        /* ==============================================
            CARDS
            ============================================== */
         .card {
@@ -571,6 +588,22 @@
             <span id="last-updated">Last updated: —</span>
         </div>
 
+        <!-- Location Inputs -->
+        <section aria-labelledby="location-heading">
+            <h2 class="sr-only" id="location-heading">Route Locations</h2>
+            <div class="location-inputs">
+                <div class="loc-input-group">
+                    <label for="input-origin">Origin</label>
+                    <input type="text" id="input-origin" class="loc-input" placeholder="Start typing... (e.g. Majestic, Bangalore)" disabled />
+                </div>
+                <div class="loc-input-group">
+                    <label for="input-destination">Destination</label>
+                    <input type="text" id="input-destination" class="loc-input" placeholder="Start typing... (e.g. Cubbon Park)" disabled />
+                </div>
+            </div>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin-top:-16px;margin-bottom:24px;">Enter your API key above to enable custom route searches.</p>
+        </section>
+
         <!-- Mode Selector -->
         <section aria-labelledby="mode-heading">
             <p class="section-label" id="mode-heading">Travel Mode</p>
@@ -769,6 +802,8 @@
     let gDirectionsService = null;  // Directions Service
     let gDirectionsRenderer= null;  // Directions Renderer
     let gMapsLoaded        = false; // Whether the Maps JS API script has loaded
+    let originPlace        = null;  // User-selected autocomplete place for origin
+    let destinationPlace   = null;  // User-selected autocomplete place for destination
 
     /* ==========================================================
        UTILITY FUNCTIONS
@@ -1158,6 +1193,31 @@
             }
         });
 
+        // Initialize Places Autocomplete
+        const originInput = document.getElementById('input-origin');
+        const destInput = document.getElementById('input-destination');
+        originInput.disabled = false;
+        destInput.disabled = false;
+
+        const autocompleteOrigin = new google.maps.places.Autocomplete(originInput);
+        const autocompleteDest = new google.maps.places.Autocomplete(destInput);
+
+        autocompleteOrigin.addListener('place_changed', () => {
+            const place = autocompleteOrigin.getPlace();
+            if (place.geometry) {
+                originPlace = place;
+                renderDirections();
+            }
+        });
+
+        autocompleteDest.addListener('place_changed', () => {
+            const place = autocompleteDest.getPlace();
+            if (place.geometry) {
+                destinationPlace = place;
+                renderDirections();
+            }
+        });
+
         renderDirections();
     };
 
@@ -1176,10 +1236,24 @@
         const waypoints  = ROUTE_WAYPOINTS[currentMode];
         const travelMode = GOOGLE_TRAVEL_MODES[currentMode] || 'DRIVING';
 
+        const origin = originPlace ? originPlace.geometry.location :
+                      (document.getElementById('input-origin').value ? document.getElementById('input-origin').value : waypoints.origin);
+
+        const destination = destinationPlace ? destinationPlace.geometry.location :
+                           (document.getElementById('input-destination').value ? document.getElementById('input-destination').value : waypoints.destination);
+
+
+        let label = waypoints.label;
+        if (originPlace || destinationPlace || document.getElementById('input-origin').value) {
+            const oName = originPlace ? originPlace.name : (document.getElementById('input-origin').value || 'Default');
+            const dName = destinationPlace ? destinationPlace.name : (document.getElementById('input-destination').value || 'Default');
+            label = `${oName} → ${dName}`;
+        }
+
         gDirectionsService.route(
             {
-                origin: waypoints.origin,
-                destination: waypoints.destination,
+                origin: origin,
+                destination: destination,
                 travelMode: google.maps.TravelMode[travelMode]
             },
             (result, status) => {
@@ -1193,7 +1267,7 @@
                     document.getElementById('map-distance').textContent = `📏 ${leg.distance.text}`;
                     document.getElementById('map-duration').textContent = `🕒 ${leg.duration.text}`;
                     document.getElementById('map-mode-label').textContent =
-                        `${MODES.find(m => m.id === currentMode)?.icon || '🚗'} ${waypoints.label}`;
+                        `${MODES.find(m => m.id === currentMode)?.icon || '🚗'} ${label}`;
                 } else {
                     console.warn('[CSP] Directions request failed:', status);
                     const infoPanel = document.getElementById('map-route-info');
