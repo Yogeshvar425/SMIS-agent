@@ -69,8 +69,14 @@ The Gemini prompt uses 5 prompt engineering principles:
 4. **TASK** — Specific multi-part instruction (recommend, suggest alternative, safety tip)
 5. **FORMAT** — "Exactly 3 short sentences, plain text only"
 
-#### 6. Google Maps Integration
-An embedded Google Map shows the relevant route area, updating when the user switches travel modes.
+#### 6. Google Maps with Live Directions
+The Google Maps JavaScript API with **DirectionsService** renders real route paths between Bangalore waypoints:
+- **Walk:** Majestic → Cubbon Park
+- **Bike:** Majestic → Koramangala  
+- **Transit:** Majestic → Whitefield
+- **Drive:** Majestic → Electronic City
+
+The map dynamically switches `TravelMode` (WALKING / BICYCLING / TRANSIT / DRIVING) when the user changes mode, and displays real distance and duration from the Directions API response.
 
 ### Architecture
 ```
@@ -87,7 +93,8 @@ An embedded Google Map shows the relevant route area, updating when the user swi
 ├──────────────────────────────────────────────────┤
 │  Google Services                                 │
 │  ─ Gemini 2.0 Flash (structured prompt AI)       │
-│  ─ Google Maps Embed API (route area map)        │
+│  ─ Google Maps JS API + DirectionsService        │
+│  ─ Google Maps Places Library                    │
 │  ─ Google Fonts (Inter typeface)                 │
 ├──────────────────────────────────────────────────┤
 │  Quality & Safety                                │
@@ -117,7 +124,8 @@ An embedded Google Map shows the relevant route area, updating when the user swi
 | **3 Metric Cards** | Congestion Index, Incidents Nearby, Air Quality (AQI) — all correlated |
 | **3 Route Cards** | Per mode — name, ETA, risk bar, severity tag, and **risk factor breakdown** |
 | **Forecast Chart** | 6-bar chart with rush-hour-aware temporal continuity and hover tooltips |
-| **Google Map** | Embedded map showing the route area for the selected mode |
+| **Live Route Map** | Google Maps with real DirectionsService route rendering, distance + duration info |
+| **Route Info Panel** | Shows real distance, duration, and route label from Directions API |
 | **AI Recommendation** | Context-rich, structured Gemini prompt with format constraints |
 | **Refresh Button** | Regenerates data + re-calls Gemini (5s cooldown to prevent abuse) |
 | **Self-Test Suite** | 45+ automated tests including correlation and prompt engineering validation |
@@ -182,7 +190,9 @@ data.candidates[0].content.parts[0].text → displayed in AI box
 | Service | Usage | Why |
 |---|---|---|
 | **Google Gemini 2.0 Flash** | Context-rich route recommendations via structured prompts | Fast inference, good at following format constraints |
-| **Google Maps Embed API** | Interactive map per travel mode | Visual route context, updates dynamically |
+| **Google Maps JavaScript API** | Interactive map with real route rendering | Full DirectionsService + DirectionsRenderer |
+| **Google Maps DirectionsService** | Computes real routes between Bangalore waypoints | Provides actual distance, duration, and polyline |
+| **Google Maps Places Library** | Places support for map interactions | Loaded alongside Maps JS API |
 | **Google Fonts (Inter)** | Professional typography | Clean, accessible at all sizes |
 
 ---
@@ -190,8 +200,8 @@ data.candidates[0].content.parts[0].text → displayed in AI box
 ## 📋 Assumptions
 
 1. **Simulated Data** — Metrics use a time-aware Gaussian model (not random numbers). In production, these would connect to Google Maps Directions API, OpenAQ, and TomTom Traffic API.
-2. **Single File** — The entire application is contained in one `index.html` with no external JS dependencies.
-3. **API Key Scope** — The user's API key needs access to the Generative Language API and Maps Embed API.
+2. **Single File** — The entire application is contained in one `index.html`. The Google Maps JS API is loaded dynamically at runtime.
+3. **API Key Scope** — The user's API key needs access to the Generative Language API, Maps JavaScript API, and Directions API.
 4. **Modern Browser** — Requires ES6+, CSS Custom Properties, Fetch API, and Page Visibility API.
 5. **Route Data** — Route names and base ETAs are illustrative; risk scores are computed, not random.
 
@@ -227,6 +237,8 @@ This validates:
 - Tab through all interactive elements to verify keyboard navigation
 - Hover over forecast chart bars to see time tooltips
 - Check risk factor breakdown on each route card
+- Verify map loads with directions and route info (distance + duration)
+- Switch modes and confirm map re-renders with correct TravelMode
 
 ---
 
