@@ -10,5 +10,12 @@ Desktop.ini
 *.swo
 *~
 
+# Node
+node_modules/
+package-lock.json
+
 # Logs
 *.log
+
+# Temp
+validate.js
